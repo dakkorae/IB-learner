@@ -24,7 +24,8 @@ import {
   ChevronUp,
   Download,
   Upload,
-  Share2
+  Share2,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LearnerProfileKey, DailyRecord, ViewType, TimePeriod, Badge } from './types';
@@ -75,6 +76,7 @@ export default function App() {
 
   // Today's date string YYYY-MM-DD
   const todayStr = new Date().toISOString().split('T')[0];
+  const [selectedDate, setSelectedDate] = useState<string>(todayStr);
 
   // Helper to calculate badge progress
   const getBadgeProgress = (badge: Badge, records: DailyRecord[]): number => {
@@ -87,7 +89,7 @@ export default function App() {
     return 0;
   };
 
-  // Format today's date for display (e.g., 2026년 7월 14일 화요일)
+  // Format selected date for display (e.g., 2026년 7월 14일 화요일)
   const getFormattedDate = () => {
     const options: Intl.DateTimeFormatOptions = {
       year: 'numeric',
@@ -95,7 +97,9 @@ export default function App() {
       day: 'numeric',
       weekday: 'long'
     };
-    return new Date(todayStr).toLocaleDateString('ko-KR', options);
+    // Replace hyphens with slashes to avoid timezone offset issue in some browsers
+    const dateObj = new Date(selectedDate.replace(/-/g, '/'));
+    return dateObj.toLocaleDateString('ko-KR', options);
   };
 
   // --- INITIALIZATION & LOCALSTORAGE ---
@@ -136,29 +140,29 @@ export default function App() {
     if (storedHistory) {
       const parsedHistory = JSON.parse(storedHistory) as DailyRecord[];
       setHistory(parsedHistory);
-      checkTodaySubmission(parsedHistory);
     } else {
       // First time user: generate 1 year of rich mock history to support all period filters!
       const mockHistory = generateMockHistory();
       localStorage.setItem('ib_portfolio_history', JSON.stringify(mockHistory));
       setHistory(mockHistory);
-      checkTodaySubmission(mockHistory);
     }
   }, []);
 
-  const checkTodaySubmission = (records: DailyRecord[]) => {
-    const todayRecord = records.find((r) => r.date === todayStr);
-    if (todayRecord && todayRecord.submitted) {
+  // Listen for date or history changes, to sync checklist input states with the selected date's record
+  useEffect(() => {
+    const record = history.find((r) => r.date === selectedDate);
+    if (record && record.submitted) {
       setSubmittedToday(true);
-      setSelectedMissions(todayRecord.completed);
-      setMemoText(todayRecord.memo || '');
+      setSelectedMissions(record.completed);
+      setMemoText(record.memo || '');
+      setIsEditingToday(false);
     } else {
       setSubmittedToday(false);
-      // Reset daily selection if not submitted
       setSelectedMissions([]);
       setMemoText('');
+      setIsEditingToday(false);
     }
-  };
+  }, [selectedDate, history]);
 
   // --- ACTIONS ---
   // Toggle mission selection
@@ -171,20 +175,20 @@ export default function App() {
     );
   };
 
-  // Submit today's checklist
+  // Submit daily checklist
   const handleSubmitDaily = (e: React.FormEvent) => {
     e.preventDefault();
     if (isShareMode) return;
 
     const newRecord: DailyRecord = {
-      date: todayStr,
+      date: selectedDate,
       completed: selectedMissions,
       submitted: true,
       memo: memoText.trim()
     };
 
-    // Filter out existing today record if any, and add the new one
-    const updatedHistory = history.filter((r) => r.date !== todayStr);
+    // Filter out existing record if any, and add the new one
+    const updatedHistory = history.filter((r) => r.date !== selectedDate);
     const finalHistory = [...updatedHistory, newRecord];
 
     // Compute newly unlocked achievements before updating state
@@ -227,7 +231,6 @@ export default function App() {
       const emptyHistory: DailyRecord[] = [];
       localStorage.setItem('ib_portfolio_history', JSON.stringify(emptyHistory));
       setHistory(emptyHistory);
-      checkTodaySubmission(emptyHistory);
       alert('모든 실천 데이터가 초기화되었습니다. 이제 첫 도전을 시작해 보세요!');
     }
   };
@@ -335,7 +338,6 @@ export default function App() {
           // If validation passes, save and overwrite
           localStorage.setItem('ib_portfolio_history', JSON.stringify(parsed));
           setHistory(parsed);
-          checkTodaySubmission(parsed);
           
           alert('🎉 성공적으로 포트폴리오 데이터를 복원했습니다!\n이제 새로 채워진 데이터를 종합 대시보드와 미션 탭에서 확인할 수 있습니다.');
         } catch (err: any) {
@@ -409,7 +411,7 @@ export default function App() {
           >
             <div className="flex items-center space-x-3">
               <CheckSquare size={18} />
-              <span>오늘의 미션 도전</span>
+              <span>{selectedDate === todayStr ? '오늘의 미션 도전' : '선택 날짜 미션 도전'}</span>
             </div>
             {submittedToday ? (
               <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/30">
@@ -496,13 +498,38 @@ export default function App() {
         {/* Top Header */}
         <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
           <div>
-            <div className="flex items-center space-x-2 text-xs font-semibold text-slate-400">
-              <Calendar size={13} />
-              <span>{getFormattedDate()}</span>
+            <div className="flex items-center space-x-2.5 text-xs font-semibold text-slate-500 relative">
+              <label className="flex items-center space-x-2 bg-slate-50 hover:bg-slate-100 text-slate-700 px-2.5 py-1.5 rounded-xl cursor-pointer transition-all duration-200 border border-slate-200 shadow-sm relative">
+                <Calendar size={14} className="text-indigo-500" />
+                <span className="font-extrabold">{getFormattedDate()}</span>
+                <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-md font-bold">변경</span>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => {
+                    const newDate = e.target.value;
+                    if (newDate) {
+                      setSelectedDate(newDate);
+                    }
+                  }}
+                  max={todayStr}
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                />
+              </label>
+              {selectedDate !== todayStr && (
+                <button
+                  onClick={() => setSelectedDate(todayStr)}
+                  className="text-[10px] bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 px-2.5 py-1.5 rounded-xl font-bold transition-all cursor-pointer shadow-sm flex items-center space-x-1"
+                  title="오늘 날짜로 돌아가기"
+                >
+                  <span>오늘로 이동</span>
+                  <span>↩</span>
+                </button>
+              )}
             </div>
-            <h2 className="text-xl font-bold text-slate-800 mt-0.5">
+            <h2 className="text-xl font-bold text-slate-800 mt-1.5">
               {currentView === 'dashboard' && '종합 성장 대시보드'}
-              {currentView === 'mission' && '오늘의 IB 학습자 미션 도전!'}
+              {currentView === 'mission' && (selectedDate === todayStr ? '오늘의 IB 학습자 미션 도전!' : `IB 학습자 미션 도전 (${selectedDate})`)}
               {currentView === 'badges' && '나의 영예로운 배지 전당'}
               {currentView === 'profiles' && 'IB 10대 학습자상 상세 안내'}
               {currentView === 'settings' && '계정 및 환경 설정'}
@@ -755,7 +782,7 @@ export default function App() {
                 <div className="space-y-1">
                   <div className="flex items-center space-x-2">
                     <span className="bg-indigo-50 text-indigo-600 text-xs px-2.5 py-0.5 rounded-full font-bold">
-                      오늘의 미션 도전 현황
+                      {selectedDate === todayStr ? '오늘의 미션 도전 현황' : `${selectedDate} 미션 도전 현황`}
                     </span>
                     <span className="text-xs text-slate-400 font-medium">
                       성공 시 체크박스를 클릭해주세요!
@@ -765,12 +792,14 @@ export default function App() {
                     10대 학습자상을 학교생활에서 실천하고, 스스로를 칭찬해주세요.
                   </h3>
                   <p className="text-xs text-slate-500">
-                    각 카드의 체크는 오늘 하루 해당 가치(Learner Profile)를 일상에서 드러낸 순간을 인증하는 체크입니다.
+                    각 카드의 체크는 {selectedDate === todayStr ? '오늘 하루' : '이 날 하루'} 해당 가치(Learner Profile)를 일상에서 드러낸 순간을 인증하는 체크입니다.
                   </p>
                 </div>
 
                 <div className="bg-indigo-50/60 p-4 rounded-xl border border-indigo-100 shrink-0 text-center md:text-right">
-                  <p className="text-[10px] font-bold text-indigo-500">오늘의 완성도</p>
+                  <p className="text-[10px] font-bold text-indigo-500">
+                    {selectedDate === todayStr ? '오늘의 완성도' : '선택 날짜의 완성도'}
+                  </p>
                   <p className="text-2xl font-black text-indigo-600">
                     {selectedMissions.length} <span className="text-sm font-normal text-slate-400">/ 10</span>
                   </p>
@@ -783,15 +812,19 @@ export default function App() {
                   <div className="flex items-center space-x-3">
                     <span className="text-xl">🎉</span>
                     <div>
-                      <h4 className="text-sm font-bold">오늘의 포트폴리오 제출이 완료되었습니다!</h4>
-                      <p className="text-xs text-emerald-600">오늘 기록한 값은 대시보드 통계에 안전하게 합산되었습니다.</p>
+                      <h4 className="text-sm font-bold">
+                        {selectedDate === todayStr ? '오늘의 포트폴리오 제출이 완료되었습니다!' : `${selectedDate} 포트폴리오 제출이 완료되었습니다!`}
+                      </h4>
+                      <p className="text-xs text-emerald-600">
+                        {selectedDate === todayStr ? '오늘 기록한 값은 대시보드 통계에 안전하게 합산되었습니다.' : '이 날 기록한 값은 대시보드 통계에 안전하게 반영되었습니다.'}
+                      </p>
                     </div>
                   </div>
                   <button
                     onClick={handleEnableEdit}
                     className="bg-white text-emerald-800 border border-emerald-200 hover:bg-emerald-100 text-xs px-3.5 py-1.5 rounded-xl font-bold transition-all shrink-0 self-start sm:self-center"
                   >
-                    오늘 기록 수정하기
+                    {selectedDate === todayStr ? '오늘 기록 수정하기' : '선택한 날짜 기록 수정하기'}
                   </button>
                 </div>
               )}
@@ -845,7 +878,7 @@ export default function App() {
                         {/* Mid Section: Real 5th-grade Mission */}
                         <div className="mt-4 p-3 bg-white/70 backdrop-blur-sm rounded-xl border border-slate-100">
                           <p className="text-xs text-slate-600 font-semibold leading-relaxed">
-                            {getMissionForDay(profile.key, todayStr)}
+                            {getMissionForDay(profile.key, selectedDate)}
                           </p>
                         </div>
 
@@ -863,13 +896,13 @@ export default function App() {
                 <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-500 mb-2">
-                      💭 오늘의 성찰 및 배운 점 기록 (선택)
+                      💭 {selectedDate === todayStr ? '오늘의 성찰 및 배운 점 기록 (선택)' : `${selectedDate} 성찰 및 배운 점 기록 (선택)`}
                     </label>
                     <textarea
                       value={memoText}
                       onChange={(e) => setMemoText(e.target.value)}
                       disabled={submittedToday && !isEditingToday}
-                      placeholder="오늘 하루 10대 학습자상을 실천하며 느꼈던 기쁨, 아쉬웠던 점, 또는 다짐을 짧게 적어보세요. (예: 오늘 발표할 때 조금 떨렸지만 도전하는 사람이 된 것 같아 엄청 기뻤어요!)"
+                      placeholder={selectedDate === todayStr ? "오늘 하루 10대 학습자상을 실천하며 느꼈던 기쁨, 아쉬웠던 점, 또는 다짐을 짧게 적어보세요. (예: 오늘 발표할 때 조금 떨렸지만 도전하는 사람이 된 것 같아 엄청 기뻤어요!)" : `${selectedDate}에 10대 학습자상을 실천하며 느꼈던 기쁨, 아쉬웠던 점, 또는 다짐을 짧게 적어보세요.`}
                       className="w-full h-24 p-4 text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-500 text-slate-700 placeholder-slate-400 transition-all resize-none disabled:bg-slate-100 disabled:cursor-not-allowed"
                     />
                   </div>
@@ -877,7 +910,7 @@ export default function App() {
                   {/* Submission Action */}
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
                     <p className="text-xs text-slate-400 font-medium text-center sm:text-left">
-                      💡 기록을 제출하면 대시보드 보고서에 오늘의 실천 성향이 안전하게 추가 반영됩니다.
+                      💡 기록을 제출하면 대시보드 보고서에 해당 날짜의 실천 성향이 안전하게 추가 반영됩니다.
                     </p>
 
                     {submittedToday && !isEditingToday ? (
@@ -894,7 +927,7 @@ export default function App() {
                         type="submit"
                         className="w-full sm:w-auto bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-extrabold px-8 py-3.5 rounded-xl transition-all shadow-lg shadow-indigo-600/15 flex items-center justify-center space-x-2 cursor-pointer"
                       >
-                        <span>🚀 하교 전 포트폴리오 제출하기</span>
+                        <span>🚀 미션 수행 결과 제출하기</span>
                       </button>
                     )}
                   </div>
@@ -1404,6 +1437,15 @@ export default function App() {
               exit={{ scale: 0.85, opacity: 0 }}
               className="bg-gradient-to-b from-indigo-950 to-slate-900 text-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-slate-800 relative overflow-hidden"
             >
+              {/* Close button at top right */}
+              <button
+                onClick={() => setShowBadgeUnlockModal(false)}
+                className="absolute top-4 right-4 text-slate-400 hover:text-white transition-all p-1.5 hover:bg-white/10 rounded-full z-20 cursor-pointer"
+                title="닫기"
+              >
+                <X size={18} />
+              </button>
+
               {/* Star light background */}
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.15)_0,transparent_100%)] pointer-events-none" />
               <div className="absolute -right-12 -top-12 w-32 h-32 bg-yellow-500/10 rounded-full blur-3xl pointer-events-none" />
