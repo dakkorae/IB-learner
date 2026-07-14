@@ -1,0 +1,13 @@
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  
+  --color-ib-navy: #1e293b;
+  --color-ib-blue: #0f172a;
+  --color-ib-accent: #3b82f6;
+  --color-ib-orange: #f97316;
+  --color-ib-green: #10b981;
+}
+
