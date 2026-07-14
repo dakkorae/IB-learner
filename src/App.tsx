@@ -223,23 +223,13 @@ export default function App() {
   // Reset entire application data
   const handleResetData = () => {
     if (isShareMode) return;
-    if (confirm('정말로 모든 포트폴리오 데이터를 초기화하시겠습니까?\n초기화 후에는 1년치 기본 가상 데이터가 새로 생성됩니다.')) {
-      const mockHistory = generateMockHistory();
-      localStorage.setItem('ib_portfolio_history', JSON.stringify(mockHistory));
-      setHistory(mockHistory);
-      checkTodaySubmission(mockHistory);
-      alert('데이터가 초기화되었고 가상 데이터가 재설정되었습니다.');
+    if (confirm('정말로 모든 포트폴리오 데이터를 초기화하시겠습니까?\n초기화 후에는 모든 실천 기록이 지워지고 처음부터 기록을 시작하게 됩니다.')) {
+      const emptyHistory: DailyRecord[] = [];
+      localStorage.setItem('ib_portfolio_history', JSON.stringify(emptyHistory));
+      setHistory(emptyHistory);
+      checkTodaySubmission(emptyHistory);
+      alert('모든 실천 데이터가 초기화되었습니다. 이제 첫 도전을 시작해 보세요!');
     }
-  };
-
-  // Add sample historical data
-  const handleGenerateSampleData = () => {
-    if (isShareMode) return;
-    const mockHistory = generateMockHistory();
-    localStorage.setItem('ib_portfolio_history', JSON.stringify(mockHistory));
-    setHistory(mockHistory);
-    checkTodaySubmission(mockHistory);
-    alert('샘플 역사 데이터(1년 분량)가 로컬 스토리지에 재생성되었습니다.');
   };
 
   // Save profile settings
@@ -1308,17 +1298,6 @@ export default function App() {
                         />
                       </label>
                     </div>
-
-                    <button
-                      onClick={handleGenerateSampleData}
-                      className="w-full text-left bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl p-3.5 flex items-center justify-between transition-all group cursor-pointer"
-                    >
-                      <div>
-                        <h5 className="text-xs font-bold text-slate-700">가상 샘플 데이터 다시 채우기</h5>
-                        <p className="text-[10px] text-slate-400 mt-0.5">최근 1개년 치의 풍부한 실천 포트폴리오 데이터를 로컬에 추가합니다.</p>
-                      </div>
-                      <ChevronRight size={16} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-                    </button>
 
                     <button
                       onClick={handleResetData}
