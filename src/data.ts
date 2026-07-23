@@ -262,7 +262,7 @@ export function getMissionForDay(profileKey: LearnerProfileKey, dateStr: string)
   return pool[idx];
 }
 
-// Generates 1 year of realistic mock data
+// Generates 30 days of realistic mock data
 export function generateMockHistory(): DailyRecord[] {
   const records: DailyRecord[] = [];
   const profileKeys = PROFILE_DATA.map((p) => p.key);
@@ -284,8 +284,8 @@ export function generateMockHistory(): DailyRecord[] {
     '하교길 쓰레기 수거 및 내 서랍 정돈을 남김없이 말끔히 완료했다.'
   ];
 
-  // Generate for past 365 days
-  for (let i = 365; i >= 1; i--) {
+  // Generate for past 30 days
+  for (let i = 30; i >= 1; i--) {
     const dateStr = getPastDateString(i);
     
     // Pick a random number of completed profiles (between 3 and 7)
