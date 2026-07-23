@@ -141,7 +141,7 @@ export default function App() {
       const parsedHistory = JSON.parse(storedHistory) as DailyRecord[];
       setHistory(parsedHistory);
     } else {
-      // First time user: generate 30 days of sample data
+      // First time user: generate 1 year of rich mock history to support all period filters!
       const mockHistory = generateMockHistory();
       localStorage.setItem('ib_portfolio_history', JSON.stringify(mockHistory));
       setHistory(mockHistory);
