@@ -6,6 +6,7 @@ import {
   Settings,
   Trophy,
   ChevronRight,
+  ChevronLeft,
   Sparkles,
   RefreshCw,
   AlertCircle,
@@ -45,6 +46,7 @@ import Confetti from './components/Confetti';
 
 export default function App() {
   // --- STATE ---
+  const dateInputRef = React.useRef<HTMLInputElement>(null);
   const [history, setHistory] = useState<DailyRecord[]>([]);
   const [userInfo, setUserInfo] = useState({
     name: '김현우',
@@ -55,11 +57,16 @@ export default function App() {
   const [selectedMissions, setSelectedMissions] = useState<LearnerProfileKey[]>([]);
   const [memoText, setMemoText] = useState('');
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
-  const [statsPeriod, setStatsPeriod] = useState<TimePeriod>('week');
+  const [statsPeriod, setStatsPeriod] = useState<TimePeriod>('1year');
   const [showCelebrateModal, setShowCelebrateModal] = useState(false);
   const [submittedToday, setSubmittedToday] = useState(false);
   const [isEditingToday, setIsEditingToday] = useState(false);
   const [expandedProfileKey, setExpandedProfileKey] = useState<LearnerProfileKey | null>(null);
+
+  // Calendar Modal States
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [calendarViewYear, setCalendarViewYear] = useState<number>(() => new Date().getFullYear());
+  const [calendarViewMonth, setCalendarViewMonth] = useState<number>(() => new Date().getMonth());
 
   // Sharing Mode States
   const [isShareMode, setIsShareMode] = useState(false);
@@ -77,6 +84,16 @@ export default function App() {
   // Today's date string YYYY-MM-DD
   const todayStr = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
+
+  useEffect(() => {
+    if (selectedDate) {
+      const d = new Date(selectedDate.replace(/-/g, '/'));
+      if (!isNaN(d.getTime())) {
+        setCalendarViewYear(d.getFullYear());
+        setCalendarViewMonth(d.getMonth());
+      }
+    }
+  }, [selectedDate, isCalendarOpen]);
 
   // Helper to calculate badge progress
   const getBadgeProgress = (badge: Badge, records: DailyRecord[]): number => {
@@ -100,6 +117,31 @@ export default function App() {
     // Replace hyphens with slashes to avoid timezone offset issue in some browsers
     const dateObj = new Date(selectedDate.replace(/-/g, '/'));
     return dateObj.toLocaleDateString('ko-KR', options);
+  };
+
+  // Date navigation handlers
+  const handlePrevDate = () => {
+    const cur = new Date(selectedDate.replace(/-/g, '/'));
+    cur.setDate(cur.getDate() - 1);
+    const yyyy = cur.getFullYear();
+    const mm = String(cur.getMonth() + 1).padStart(2, '0');
+    const dd = String(cur.getDate()).padStart(2, '0');
+    setSelectedDate(`${yyyy}-${mm}-${dd}`);
+    setCurrentView('mission');
+  };
+
+  const handleNextDate = () => {
+    if (selectedDate >= todayStr) return;
+    const cur = new Date(selectedDate.replace(/-/g, '/'));
+    cur.setDate(cur.getDate() + 1);
+    const yyyy = cur.getFullYear();
+    const mm = String(cur.getMonth() + 1).padStart(2, '0');
+    const dd = String(cur.getDate()).padStart(2, '0');
+    const nextStr = `${yyyy}-${mm}-${dd}`;
+    if (nextStr <= todayStr) {
+      setSelectedDate(nextStr);
+      setCurrentView('mission');
+    }
   };
 
   // --- INITIALIZATION & LOCALSTORAGE ---
@@ -362,12 +404,12 @@ export default function App() {
       {/* --- SIDEBAR NAVIGATION --- */}
       <aside className="w-full md:w-64 bg-slate-900 text-slate-200 flex flex-col shrink-0 border-r border-slate-800">
         {/* Brand / Title */}
-        <div className="p-6 border-b border-slate-800 flex items-center space-x-3">
-          <div className="bg-indigo-600 text-white p-2.5 rounded-xl shadow-md">
-            <Trophy size={20} className="text-white" />
+        <div className="p-5 border-b border-slate-800 flex items-center space-x-3">
+          <div className="bg-indigo-600 text-white p-2 rounded-xl shadow-md shrink-0">
+            <Trophy size={18} className="text-white" />
           </div>
-          <div>
-            <h1 className="text-md font-bold tracking-tight text-white">IB 학습자상</h1>
+          <div className="min-w-0">
+            <h1 className="text-[12px] font-extrabold tracking-tight text-white leading-snug whitespace-nowrap">IB학습자를 위한 매일 한 걸음!</h1>
             <p className="text-[10px] text-slate-400 font-medium">PORTFOLIO DASHBOARD</p>
           </div>
         </div>
@@ -498,27 +540,49 @@ export default function App() {
         {/* Top Header */}
         <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
           <div>
-            <div className="flex items-center space-x-2.5 text-xs font-semibold text-slate-500 relative">
-              <label className="flex items-center space-x-2 bg-slate-50 hover:bg-slate-100 text-slate-700 px-2.5 py-1.5 rounded-xl cursor-pointer transition-all duration-200 border border-slate-200 shadow-sm relative">
-                <Calendar size={14} className="text-indigo-500" />
-                <span className="font-extrabold">{getFormattedDate()}</span>
-                <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-md font-bold">변경</span>
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => {
-                    const newDate = e.target.value;
-                    if (newDate) {
-                      setSelectedDate(newDate);
-                    }
-                  }}
-                  max={todayStr}
-                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                />
-              </label>
+            <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-slate-500 relative">
+              {/* 이전 날짜 버튼 */}
+              <button
+                type="button"
+                onClick={handlePrevDate}
+                className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl border border-slate-200 transition-all cursor-pointer shadow-sm active:scale-95 flex items-center justify-center"
+                title="이전 날짜로 이동"
+              >
+                <ChevronLeft size={15} />
+              </button>
+
+              {/* 날짜 선택 버튼 (클릭 시 달력 팝업 모달 열림) */}
+              <button
+                type="button"
+                onClick={() => setIsCalendarOpen(true)}
+                className="inline-flex items-center space-x-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 px-3.5 py-1.5 rounded-xl border border-indigo-200 shadow-sm cursor-pointer transition-all duration-200 group active:scale-95"
+              >
+                <Calendar size={15} className="text-indigo-600 group-hover:scale-110 transition-transform shrink-0" />
+                <span className="font-extrabold text-xs sm:text-sm">{getFormattedDate()}</span>
+                <span className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-md font-bold shrink-0 shadow-xs">
+                  📅 달력 열기 / 날짜 선택
+                </span>
+              </button>
+
+              {/* 다음 날짜 버튼 (오늘 날짜까지만 이동 가능) */}
+              <button
+                type="button"
+                onClick={handleNextDate}
+                disabled={selectedDate >= todayStr}
+                className="p-1.5 bg-slate-50 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-slate-50 text-slate-600 rounded-xl border border-slate-200 transition-all cursor-pointer shadow-sm active:scale-95 flex items-center justify-center disabled:cursor-not-allowed"
+                title="다음 날짜로 이동"
+              >
+                <ChevronRight size={15} />
+              </button>
+
+              {/* 오늘 날짜로 이동 버튼 */}
               {selectedDate !== todayStr && (
                 <button
-                  onClick={() => setSelectedDate(todayStr)}
+                  type="button"
+                  onClick={() => {
+                    setSelectedDate(todayStr);
+                    setCurrentView('mission');
+                  }}
                   className="text-[10px] bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 px-2.5 py-1.5 rounded-xl font-bold transition-all cursor-pointer shadow-sm flex items-center space-x-1"
                   title="오늘 날짜로 돌아가기"
                 >
@@ -561,36 +625,79 @@ export default function App() {
           {currentView === 'dashboard' && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Top Summary Stats Cards */}
-              <div className="lg:col-span-12 grid grid-cols-1 sm:grid-cols-3 gap-6">
-                <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center space-x-4">
-                  <div className="p-3.5 bg-indigo-50 text-indigo-600 rounded-2xl">
-                    <Calendar size={22} />
+              <div className="lg:col-span-12 grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Card 1: Total Recorded Days */}
+                <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl shrink-0">
+                      <Calendar size={22} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-400">총 기록 일수</p>
+                      <p className="text-xl font-black text-slate-800">{stats.totalSubmittedDays}일째 실천 중</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs font-semibold text-slate-400">총 기록 일수</p>
-                    <p className="text-xl font-black text-slate-800">{history.length}일째 실천 중</p>
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 font-medium">전체</span>
+                      <span className="font-bold text-slate-700">{stats.totalSubmittedDays}일</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 font-medium">평일</span>
+                      <span className="font-bold text-slate-700">{stats.weekdaySubmittedDays}일</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 font-medium">주말 및 공휴일</span>
+                      <span className="font-bold text-slate-700">{stats.weekendHolidaySubmittedDays}일</span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center space-x-4">
-                  <div className="p-3.5 bg-emerald-50 text-emerald-600 rounded-2xl">
-                    <Award size={22} />
+                {/* Card 2: Average Daily Actions */}
+                <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl shrink-0">
+                      <Award size={22} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-400">하루 평균 실천 수</p>
+                      <p className="text-xl font-black text-slate-800">{stats.averageCompletedPerDay}개 / 일</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs font-semibold text-slate-400">하루 평균 실천 수</p>
-                    <p className="text-xl font-black text-slate-800">{stats.averageCompletedPerDay}개</p>
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 font-medium">전체</span>
+                      <span className="font-bold text-slate-700">{stats.averageCompletedPerDay}개/일</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 font-medium">평일</span>
+                      <span className="font-bold text-slate-700">{stats.weekdayAveragePerDay}개/일</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 font-medium">주말 및 공휴일</span>
+                      <span className="font-bold text-slate-700">{stats.weekendHolidayAveragePerDay}개/일</span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center space-x-4">
-                  <div className="p-3.5 bg-amber-50 text-amber-600 rounded-2xl">
-                    <Sparkles size={22} />
+                {/* Card 3: Completion Status for Selected Date */}
+                <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl shrink-0">
+                      <Sparkles size={22} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-400">
+                        {selectedDate === todayStr ? '오늘 완료 여부' : `${selectedDate} 완료 여부`}
+                      </p>
+                      <p className={`text-xl font-black ${submittedToday ? 'text-emerald-600' : 'text-amber-500'}`}>
+                        {submittedToday ? '제출 완료 🎉' : '미제출 (진행중)'}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs font-semibold text-slate-400">오늘 완료 여부</p>
-                    <p className={`text-xl font-black ${submittedToday ? 'text-emerald-600' : 'text-amber-500'}`}>
-                      {submittedToday ? '제출 완료 🎉' : '미제출 (진행중)'}
-                    </p>
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">해당 날짜 실천 항목:</span>
+                    <span className="font-extrabold text-amber-600">{selectedMissions.length}개 완료</span>
                   </div>
                 </div>
               </div>
@@ -728,7 +835,7 @@ export default function App() {
                 {/* Feed of Recent Journals / Actions */}
                 <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-50">
-                    <h3 className="text-sm font-bold text-slate-800">최근 하교 일지 기록</h3>
+                    <h3 className="text-sm font-bold text-slate-800">최근 일지 기록</h3>
                     <span className="text-xs text-slate-400">지속적인 성장의 기록</span>
                   </div>
 
@@ -1360,6 +1467,14 @@ export default function App() {
               exit={{ scale: 0.9, opacity: 0 }}
               className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-slate-100 relative overflow-hidden"
             >
+              {/* Top Right Close Button */}
+              <button
+                onClick={() => setShowCelebrateModal(false)}
+                className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-all p-1.5 hover:bg-slate-100 rounded-full z-20 cursor-pointer"
+                title="닫기"
+              >
+                <X size={18} />
+              </button>
               {/* Confetti element decoration inside card */}
               <div className="absolute -right-6 -top-6 w-24 h-24 bg-indigo-50 rounded-full blur-2xl pointer-events-none" />
               <div className="absolute -left-6 -bottom-6 w-24 h-24 bg-rose-50 rounded-full blur-2xl pointer-events-none" />
@@ -1511,6 +1626,197 @@ export default function App() {
                     className="bg-gradient-to-r from-yellow-500 to-amber-500 hover:from-yellow-400 hover:to-amber-400 text-slate-950 text-xs font-black py-3.5 rounded-xl transition-all shadow-md shadow-yellow-500/10 cursor-pointer"
                   >
                     배지 전당가서 자랑하기 🏆
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* --- CALENDAR SELECTION POPUP MODAL --- */}
+        {isCalendarOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 max-w-sm sm:max-w-md w-full shadow-2xl border border-slate-100 relative"
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+                <div className="flex items-center space-x-2.5">
+                  <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-2xl">
+                    <Calendar size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-slate-800 text-sm">미션 수행 날짜 선택</h3>
+                    <p className="text-[10px] text-slate-400">날짜를 클릭하면 해당 날짜 미션 보기로 이동합니다.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsCalendarOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-all cursor-pointer"
+                  title="닫기"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Month Navigation Header */}
+              <div className="flex items-center justify-between px-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (calendarViewMonth === 0) {
+                      setCalendarViewMonth(11);
+                      setCalendarViewYear((y) => y - 1);
+                    } else {
+                      setCalendarViewMonth((m) => m - 1);
+                    }
+                  }}
+                  className="p-2 hover:bg-slate-100 rounded-xl text-slate-600 transition-all cursor-pointer border border-slate-200 shadow-2xs"
+                  title="이전 달"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+
+                <div className="text-center">
+                  <span className="font-black text-base text-slate-800">
+                    {calendarViewYear}년 {calendarViewMonth + 1}월
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (calendarViewMonth === 11) {
+                      setCalendarViewMonth(0);
+                      setCalendarViewYear((y) => y + 1);
+                    } else {
+                      setCalendarViewMonth((m) => m + 1);
+                    }
+                  }}
+                  className="p-2 hover:bg-slate-100 rounded-xl text-slate-600 transition-all cursor-pointer border border-slate-200 shadow-2xs"
+                  title="다음 달"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+
+              {/* Weekday Labels */}
+              <div className="grid grid-cols-7 gap-1 text-center font-bold text-xs mb-2">
+                <span className="text-rose-500 py-1">일</span>
+                <span className="text-slate-600 py-1">월</span>
+                <span className="text-slate-600 py-1">화</span>
+                <span className="text-slate-600 py-1">수</span>
+                <span className="text-slate-600 py-1">목</span>
+                <span className="text-slate-600 py-1">금</span>
+                <span className="text-indigo-600 py-1">토</span>
+              </div>
+
+              {/* Days Grid */}
+              <div className="grid grid-cols-7 gap-1 text-center text-xs">
+                {/* Leading offset blanks */}
+                {Array.from({ length: new Date(calendarViewYear, calendarViewMonth, 1).getDay() }).map((_, i) => (
+                  <div key={`blank-${i}`} className="h-9" />
+                ))}
+
+                {/* Days of the Month */}
+                {Array.from({ length: new Date(calendarViewYear, calendarViewMonth + 1, 0).getDate() }).map((_, i) => {
+                  const dayNum = i + 1;
+                  const mmStr = String(calendarViewMonth + 1).padStart(2, '0');
+                  const ddStr = String(dayNum).padStart(2, '0');
+                  const dateStr = `${calendarViewYear}-${mmStr}-${ddStr}`;
+
+                  const isToday = dateStr === todayStr;
+                  const isSelected = dateStr === selectedDate;
+                  const isFuture = dateStr > todayStr;
+                  const hasRecord = history.some((r) => r.date === dateStr && r.submitted && r.completed.length > 0);
+
+                  return (
+                    <button
+                      key={dateStr}
+                      disabled={isFuture}
+                      onClick={() => {
+                        setSelectedDate(dateStr);
+                        setCurrentView('mission');
+                        setIsCalendarOpen(false);
+                      }}
+                      className={`h-9 rounded-xl font-bold flex flex-col items-center justify-center relative transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/25 scale-105'
+                          : isToday
+                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                          : isFuture
+                          ? 'text-slate-300 bg-slate-50 cursor-not-allowed opacity-50'
+                          : 'text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 border border-transparent'
+                      }`}
+                    >
+                      <span>{dayNum}</span>
+                      {/* Record Indicator Dot */}
+                      {hasRecord && (
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full absolute bottom-1 ${
+                            isSelected ? 'bg-amber-300' : 'bg-emerald-500'
+                          }`}
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Footer Legend & Manual Input */}
+              <div className="mt-4 pt-3 border-t border-slate-100 space-y-2.5 text-[11px] text-slate-500">
+                <div className="flex items-center justify-between text-xs font-semibold px-1">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                    <span>기록 제출 완료</span>
+                  </div>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+                    <span>오늘 ({todayStr})</span>
+                  </div>
+                </div>
+
+                {/* Direct Date Input Fallback */}
+                <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                  <span className="font-extrabold text-slate-700 text-xs">직접 날짜 입력:</span>
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    max={todayStr}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setSelectedDate(e.target.value);
+                        setCurrentView('mission');
+                        setIsCalendarOpen(false);
+                      }
+                    }}
+                    className="border border-slate-300 rounded-lg px-2 py-1 text-xs text-slate-800 font-bold bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedDate(todayStr);
+                      setCurrentView('mission');
+                      setIsCalendarOpen(false);
+                    }}
+                    className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-extrabold px-3 py-2 rounded-xl transition-all cursor-pointer"
+                  >
+                    오늘 날짜로 이동 ({todayStr})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsCalendarOpen(false)}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-extrabold px-4 py-2 rounded-xl transition-all cursor-pointer"
+                  >
+                    닫기
                   </button>
                 </div>
               </div>

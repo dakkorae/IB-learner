@@ -180,6 +180,55 @@ export function getPastDateString(daysAgo: number): string {
   return d.toISOString().split('T')[0];
 }
 
+// Check if a given YYYY-MM-DD date falls on a South Korean Weekend or Public Holiday
+export function isKoreanWeekendOrHoliday(dateStr: string): boolean {
+  if (!dateStr) return false;
+  const parts = dateStr.split('-');
+  if (parts.length < 3) return false;
+
+  const yyyy = parts[0];
+  const mm = parts[1];
+  const dd = parts[2];
+
+  const dateObj = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+  const dayOfWeek = dateObj.getDay(); // 0 = Sunday, 6 = Saturday
+
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    return true;
+  }
+
+  // Fixed Korean Solar Public Holidays
+  const mmdd = `${mm}-${dd}`;
+  const fixedHolidays = [
+    '01-01', // 신정
+    '03-01', // 삼일절
+    '05-05', // 어린이날
+    '06-06', // 현충일
+    '08-15', // 광복절
+    '10-03', // 개천절
+    '10-09', // 한글날
+    '12-25', // 성탄절
+  ];
+
+  if (fixedHolidays.includes(mmdd)) {
+    return true;
+  }
+
+  // Known Lunar / Variable Holidays & Substitute Holidays in Korea (2024 - 2027)
+  const variableHolidays = [
+    // 2024
+    '2024-02-09', '2024-02-10', '2024-02-11', '2024-02-12', '2024-04-10', '2024-05-15', '2024-09-16', '2024-09-17', '2024-09-18',
+    // 2025
+    '2025-01-28', '2025-01-29', '2025-01-30', '2025-03-03', '2025-05-06', '2025-10-05', '2025-10-06', '2025-10-07', '2025-10-08',
+    // 2026
+    '2026-02-16', '2026-02-17', '2026-02-18', '2026-03-02', '2026-05-24', '2026-05-25', '2026-06-03', '2026-09-24', '2026-09-25', '2026-09-26', '2026-10-05',
+    // 2027
+    '2027-02-06', '2027-02-07', '2027-02-08', '2027-02-09', '2027-05-13', '2027-09-14', '2027-09-15', '2027-09-16'
+  ];
+
+  return variableHolidays.includes(dateStr);
+}
+
 export const MISSION_POOL: Record<LearnerProfileKey, string[]> = {
   Inquirers: [
     '수업 시간에 궁금한 점이 생기면 질문 노트나 배움 공책에 적어두고, 쉬는 시간에 스스로 책이나 태블릿으로 답 찾아보기',
@@ -359,13 +408,30 @@ export function calculateStats(history: DailyRecord[], period: TimePeriod) {
   const maxVal = sorted[0]?.value || 0;
   const minVal = sorted[sorted.length - 1]?.value || 0;
 
+  // Calculate weekday vs weekend/holiday stats
+  const weekdayRecords = filteredHistory.filter((r) => !isKoreanWeekendOrHoliday(r.date));
+  const weekendHolidayRecords = filteredHistory.filter((r) => isKoreanWeekendOrHoliday(r.date));
+
+  const totalActions = filteredHistory.reduce((acc, r) => acc + r.completed.length, 0);
+  const weekdayActions = weekdayRecords.reduce((acc, r) => acc + r.completed.length, 0);
+  const weekendHolidayActions = weekendHolidayRecords.reduce((acc, r) => acc + r.completed.length, 0);
+
   return {
     chartData,
     strongest: sorted.length > 0 && sorted[0].value > 0 ? sorted[0] : null,
     weakest: sorted.length > 0 ? sorted[sorted.length - 1] : null,
     totalSubmittedDays: filteredHistory.length,
+    weekdaySubmittedDays: weekdayRecords.length,
+    weekendHolidaySubmittedDays: weekendHolidayRecords.length,
+
     averageCompletedPerDay: filteredHistory.length > 0
-      ? (filteredHistory.reduce((acc, r) => acc + r.completed.length, 0) / filteredHistory.length).toFixed(1)
+      ? (totalActions / filteredHistory.length).toFixed(1)
+      : '0',
+    weekdayAveragePerDay: weekdayRecords.length > 0
+      ? (weekdayActions / weekdayRecords.length).toFixed(1)
+      : '0',
+    weekendHolidayAveragePerDay: weekendHolidayRecords.length > 0
+      ? (weekendHolidayActions / weekendHolidayRecords.length).toFixed(1)
       : '0'
   };
 }
