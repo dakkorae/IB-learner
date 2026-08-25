@@ -34,10 +34,13 @@ import {
   PROFILE_DATA, 
   generateMockHistory, 
   calculateStats, 
-  getPastDateString,
+  getPastDateString, 
   getMissionForDay,
+  getRandomMission,
+  getDefaultMissionForDay,
   getBadgesList,
-  reconstructHistoryFromShared
+  reconstructHistoryFromShared,
+  IB_MISSIONS_1000
 } from './data';
 import RadarChart from './components/RadarChart';
 import HistoryBarChart from './components/HistoryBarChart';
@@ -81,9 +84,25 @@ export default function App() {
   const [newlyUnlockedBadges, setNewlyUnlockedBadges] = useState<Badge[]>([]);
   const [showBadgeUnlockModal, setShowBadgeUnlockModal] = useState(false);
 
+  // Custom Assigned Missions per Date (when rerolled by user)
+  const [customMissionsByDate, setCustomMissionsByDate] = useState<Record<string, Partial<Record<LearnerProfileKey, string>>>>({});
+  // Daily Reroll Count per Date per Profile (Max 3 attempts per profile per day)
+  const [rerollCountsByDate, setRerollCountsByDate] = useState<Record<string, Partial<Record<LearnerProfileKey, number>>>>({});
+  // Feedback animation state for recently rerolled card
+  const [recentlyRerolledKey, setRecentlyRerolledKey] = useState<LearnerProfileKey | null>(null);
+  // Toast notification state
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'warning' | 'info' } | null>(null);
+
   // Today's date string YYYY-MM-DD
   const todayStr = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
+
+  const showToast = (text: string, type: 'success' | 'warning' | 'info' = 'info') => {
+    setToastMessage({ text, type });
+    setTimeout(() => {
+      setToastMessage((prev) => (prev?.text === text ? null : prev));
+    }, 3200);
+  };
 
   useEffect(() => {
     if (selectedDate) {
@@ -188,6 +207,27 @@ export default function App() {
       localStorage.setItem('ib_portfolio_history', JSON.stringify(mockHistory));
       setHistory(mockHistory);
     }
+
+    // 4. Load Custom Missions & Daily Reroll Counts
+    const storedCustomMissions = localStorage.getItem('ib_custom_missions_by_date');
+    if (storedCustomMissions) {
+      try {
+        setCustomMissionsByDate(JSON.parse(storedCustomMissions));
+      } catch (e) {
+        console.error('Failed to parse custom missions', e);
+      }
+    }
+    const storedRerolls = localStorage.getItem('ib_reroll_counts_by_date');
+    if (storedRerolls) {
+      try {
+        const parsed = JSON.parse(storedRerolls);
+        if (parsed && typeof parsed === 'object') {
+          setRerollCountsByDate(parsed);
+        }
+      } catch (e) {
+        console.error('Failed to parse reroll counts', e);
+      }
+    }
   }, []);
 
   // Listen for date or history changes, to sync checklist input states with the selected date's record
@@ -207,6 +247,57 @@ export default function App() {
   }, [selectedDate, history]);
 
   // --- ACTIONS ---
+  // Reroll single profile mission for the selected date (max 3 times per profile per day)
+  const handleRerollMission = (profileKey: LearnerProfileKey, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isShareMode) return;
+    if (submittedToday && !isEditingToday) {
+      showToast('⚠️ 이미 제출된 기록에서는 미션을 변경할 수 없습니다. 수정을 원하시면 "기록 수정하기"를 눌러주세요.', 'warning');
+      return;
+    }
+
+    const dateRerolls = rerollCountsByDate[selectedDate] || {};
+    const currentCount = (typeof dateRerolls === 'object' ? (dateRerolls[profileKey] || 0) : 0);
+    const prof = PROFILE_DATA.find((p) => p.key === profileKey);
+    const profName = prof ? prof.name : '해당 영역';
+
+    if (currentCount >= 3) {
+      showToast(`⚠️ [${profName}] 실천 미션 바꾸기는 영역별로 하루 최대 3회까지만 가능합니다. (남은 기회: 0회)`, 'warning');
+      return;
+    }
+
+    const currentMission = getMissionForDay(profileKey, selectedDate, customMissionsByDate[selectedDate]);
+    const newMission = getRandomMission(profileKey, currentMission);
+
+    const updatedDateMissions = {
+      ...(customMissionsByDate[selectedDate] || {}),
+      [profileKey]: newMission
+    };
+    const nextCustomMissions = {
+      ...customMissionsByDate,
+      [selectedDate]: updatedDateMissions
+    };
+
+    const nextRerollCounts = {
+      ...rerollCountsByDate,
+      [selectedDate]: {
+        ...(typeof rerollCountsByDate[selectedDate] === 'object' ? rerollCountsByDate[selectedDate] : {}),
+        [profileKey]: currentCount + 1
+      }
+    };
+
+    setCustomMissionsByDate(nextCustomMissions);
+    setRerollCountsByDate(nextRerollCounts);
+    localStorage.setItem('ib_custom_missions_by_date', JSON.stringify(nextCustomMissions));
+    localStorage.setItem('ib_reroll_counts_by_date', JSON.stringify(nextRerollCounts));
+
+    setRecentlyRerolledKey(profileKey);
+    setTimeout(() => setRecentlyRerolledKey(null), 1000);
+
+    const remaining = 3 - (currentCount + 1);
+    showToast(`✨ [${profName}] 새로운 실천 미션으로 변경되었습니다! (이 영역 남은 기회: ${remaining}회)`, 'success');
+  };
+
   // Toggle mission selection
   const handleToggleMission = (key: LearnerProfileKey) => {
     if (isShareMode) return; // Prevent modification in share mode
@@ -889,28 +980,28 @@ export default function App() {
             <div className="space-y-6">
               {/* Daily Checklist Header Guide */}
               <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <div className="flex items-center space-x-2">
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="bg-indigo-50 text-indigo-600 text-xs px-2.5 py-0.5 rounded-full font-bold">
                       {selectedDate === todayStr ? '오늘의 미션 도전 현황' : `${selectedDate} 미션 도전 현황`}
                     </span>
                     <span className="text-xs text-slate-400 font-medium">
-                      성공 시 체크박스를 클릭해주세요!
+                      총 1,000가지 실천 미션 중 랜덤 제시 (영역별 100가지)
                     </span>
                   </div>
                   <h3 className="text-base font-bold text-slate-800">
                     10대 학습자상을 학교생활에서 실천하고, 스스로를 칭찬해주세요.
                   </h3>
                   <p className="text-xs text-slate-500">
-                    각 카드의 체크는 {selectedDate === todayStr ? '오늘 하루' : '이 날 하루'} 해당 가치(Learner Profile)를 일상에서 드러낸 순간을 인증하는 체크입니다.
+                    각 영역별 실천 미션이 마음에 들지 않으면 <strong className="text-indigo-600">영역별로 각각 하루 최대 3회씩</strong> 다른 미션으로 변경할 수 있습니다.
                   </p>
                 </div>
 
-                <div className="bg-indigo-50/60 p-4 rounded-xl border border-indigo-100 shrink-0 text-center md:text-right">
-                  <p className="text-[10px] font-bold text-indigo-500">
-                    {selectedDate === todayStr ? '오늘의 완성도' : '선택 날짜의 완성도'}
+                <div className="bg-indigo-50/60 p-4 rounded-xl border border-indigo-100 text-center shrink-0 min-w-[120px]">
+                  <p className="text-[10px] font-bold text-indigo-500 mb-0.5">
+                    {selectedDate === todayStr ? '오늘의 완성도' : '선택 날짜 완성도'}
                   </p>
-                  <p className="text-2xl font-black text-indigo-600">
+                  <p className="text-2xl font-black text-indigo-600 leading-tight">
                     {selectedMissions.length} <span className="text-sm font-normal text-slate-400">/ 10</span>
                   </p>
                 </div>
@@ -945,18 +1036,26 @@ export default function App() {
                   {PROFILE_DATA.map((profile, idx) => {
                     const isSelected = selectedMissions.includes(profile.key);
                     const disabled = submittedToday && !isEditingToday;
+                    const isRerolled = !!(customMissionsByDate[selectedDate] && customMissionsByDate[selectedDate]![profile.key]);
+                    const isRecentlyChanged = recentlyRerolledKey === profile.key;
+
+                    const dateRerolls = rerollCountsByDate[selectedDate] || {};
+                    const categoryRerollCount = (typeof dateRerolls === 'object' ? (dateRerolls[profile.key] || 0) : 0);
+                    const remainingCategoryRerolls = Math.max(0, 3 - categoryRerollCount);
 
                     return (
                       <div
                         key={profile.key}
                         onClick={() => !disabled && handleToggleMission(profile.key)}
                         className={`p-5 rounded-2xl border transition-all duration-200 flex flex-col justify-between ${
-                          isSelected
+                          isRecentlyChanged
+                            ? 'ring-2 ring-amber-400 bg-amber-50/40 border-amber-300 shadow-md'
+                            : isSelected
                             ? `${profile.borderColor} ${profile.bgColor} ring-2 ring-indigo-500/15 shadow-md`
                             : 'border-slate-100 bg-white hover:border-slate-200 hover:shadow-sm'
                         } ${disabled ? 'cursor-not-allowed opacity-85' : 'cursor-pointer'}`}
                       >
-                        {/* Upper line: Emoji, Badge, Checkbox */}
+                        {/* Upper line: Emoji, Badge, Actions */}
                         <div className="flex items-start justify-between">
                           <div className="flex items-center space-x-2.5">
                             <span className="text-3xl">{profile.emoji}</span>
@@ -973,29 +1072,95 @@ export default function App() {
                             </div>
                           </div>
 
-                          {/* Custom Checkbox UI */}
-                          <div
-                            className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-all ${
-                              isSelected
-                                ? 'bg-indigo-600 border-indigo-600 text-white'
-                                : 'border-slate-200 bg-slate-50 text-transparent'
-                            }`}
-                          >
-                            <Check size={14} strokeWidth={3} />
+                          {/* Right Controls: Per-Category Reroll Button + Checkbox */}
+                          <div className="flex items-center space-x-2">
+                            {/* Mission Reroll Button with per-category remaining count */}
+                            <button
+                              type="button"
+                              disabled={disabled || remainingCategoryRerolls <= 0}
+                              onClick={(e) => handleRerollMission(profile.key, e)}
+                              className={`inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-all cursor-pointer shadow-xs ${
+                                disabled || remainingCategoryRerolls <= 0
+                                  ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60'
+                                  : 'bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-800 border-slate-200 hover:border-amber-300 active:scale-95'
+                              }`}
+                              title={
+                                remainingCategoryRerolls > 0
+                                  ? `[${profile.name}] 실천 미션을 다른 미션으로 변경합니다 (이 영역 남은 기회: ${remainingCategoryRerolls}회)`
+                                  : `[${profile.name}] 오늘의 실천미션 변경 기회(3회)를 모두 사용했습니다.`
+                              }
+                            >
+                              <RefreshCw size={11} className={`${isRecentlyChanged ? 'animate-spin text-amber-600' : remainingCategoryRerolls > 0 ? 'text-amber-600' : 'text-slate-400'}`} />
+                              <span>미션 변경</span>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-extrabold transition-colors ${
+                                remainingCategoryRerolls > 0
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-slate-200 text-slate-500'
+                              }`}>
+                                {remainingCategoryRerolls}/3
+                              </span>
+                            </button>
+
+                            {/* Custom Checkbox UI */}
+                            <div
+                              className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-all ${
+                                isSelected
+                                  ? 'bg-indigo-600 border-indigo-600 text-white'
+                                  : 'border-slate-200 bg-slate-50 text-transparent'
+                              }`}
+                            >
+                              <Check size={14} strokeWidth={3} />
+                            </div>
                           </div>
                         </div>
 
-                        {/* Mid Section: Real 5th-grade Mission */}
-                        <div className="mt-4 p-3 bg-white/70 backdrop-blur-sm rounded-xl border border-slate-100">
-                          <p className="text-xs text-slate-600 font-semibold leading-relaxed">
-                            {getMissionForDay(profile.key, selectedDate)}
+                        {/* Mid Section: Real 100-mission Pool Content */}
+                        <div className={`mt-4 p-3.5 backdrop-blur-sm rounded-xl border transition-all ${
+                          isRecentlyChanged
+                            ? 'bg-amber-50/70 border-amber-200'
+                            : isSelected
+                            ? 'bg-white/80 border-slate-100'
+                            : 'bg-slate-50/70 border-slate-100'
+                        }`}>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <div className="flex items-center space-x-1.5">
+                              <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100/60">
+                                💡 실천 미션
+                              </span>
+                              {isRerolled && (
+                                <span className="text-[10px] font-bold text-amber-700 bg-amber-100/80 px-1.5 py-0.5 rounded-md border border-amber-200 flex items-center space-x-1">
+                                  <Sparkles size={9} />
+                                  <span>새로 뽑은 미션</span>
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              <span className="text-[10px] font-semibold text-slate-400">변경 기회:</span>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-md ${
+                                remainingCategoryRerolls > 0
+                                  ? 'text-amber-700 bg-amber-50 border border-amber-200/60'
+                                  : 'text-slate-400 bg-slate-100'
+                              }`}>
+                                {remainingCategoryRerolls} / 3회
+                              </span>
+                            </div>
+                          </div>
+                          <p className="text-xs sm:text-[13px] text-slate-700 font-semibold leading-relaxed">
+                            {getMissionForDay(profile.key, selectedDate, customMissionsByDate[selectedDate])}
                           </p>
                         </div>
 
                         {/* Bottom Hint Tip */}
-                        <div className="mt-3 flex items-center text-[10px] text-slate-400 font-medium">
-                          <Info size={11} className="mr-1.5 text-slate-300" />
-                          <span>배우고 실천했다면 카드를 눌러 체크하세요.</span>
+                        <div className="mt-3 flex items-center justify-between text-[10px] text-slate-400 font-medium">
+                          <div className="flex items-center">
+                            <Info size={11} className="mr-1.5 text-slate-300" />
+                            <span>배우고 실천했다면 카드를 눌러 체크하세요.</span>
+                          </div>
+                          {remainingCategoryRerolls > 0 && !disabled && (
+                            <span className="text-amber-600/90 font-semibold hidden sm:inline">
+                              이 영역 변경 가능 ({remainingCategoryRerolls}회 남음)
+                            </span>
+                          )}
                         </div>
                       </div>
                     );
@@ -1825,6 +1990,43 @@ export default function App() {
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Toast Notification */}
+      <AnimatePresence>
+        {toastMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            transition={{ duration: 0.2 }}
+            className="fixed bottom-6 right-6 z-50 max-w-md pointer-events-auto"
+          >
+            <div className={`p-4 rounded-2xl shadow-xl border flex items-center space-x-3 backdrop-blur-md ${
+              toastMessage.type === 'success'
+                ? 'bg-slate-900/95 text-white border-slate-700 shadow-slate-900/20'
+                : toastMessage.type === 'warning'
+                ? 'bg-amber-900/95 text-amber-50 border-amber-700 shadow-amber-950/30'
+                : 'bg-indigo-900/95 text-white border-indigo-700 shadow-indigo-950/30'
+            }`}>
+              <div className="shrink-0">
+                {toastMessage.type === 'success' && <Sparkles size={18} className="text-amber-400" />}
+                {toastMessage.type === 'warning' && <AlertCircle size={18} className="text-amber-400" />}
+                {toastMessage.type === 'info' && <Info size={18} className="text-indigo-300" />}
+              </div>
+              <p className="text-xs sm:text-sm font-bold flex-1 leading-snug">
+                {toastMessage.text}
+              </p>
+              <button
+                type="button"
+                onClick={() => setToastMessage(null)}
+                className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/10"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
