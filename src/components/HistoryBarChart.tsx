@@ -11,7 +11,8 @@ export default function HistoryBarChart({ history }: HistoryBarChartProps) {
 
   const getDayLabel = (dateStr: string) => {
     try {
-      const date = new Date(dateStr);
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const date = new Date(y, (m || 1) - 1, d || 1);
       const days = ['일', '월', '화', '수', '목', '금', '토'];
       return `${date.getDate()}일(${days[date.getDay()]})`;
     } catch {

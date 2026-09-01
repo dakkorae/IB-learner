@@ -33,8 +33,11 @@ import { LearnerProfileKey, DailyRecord, ViewType, TimePeriod, Badge } from './t
 import { 
   PROFILE_DATA, 
   generateMockHistory, 
+  syncHistoryWithToday,
   calculateStats, 
   getPastDateString, 
+  getLocalDateString,
+  parseDateString,
   getMissionForDay,
   getRandomMission,
   getDefaultMissionForDay,
@@ -93,9 +96,37 @@ export default function App() {
   // Toast notification state
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'warning' | 'info' } | null>(null);
 
-  // Today's date string YYYY-MM-DD
-  const todayStr = new Date().toISOString().split('T')[0];
-  const [selectedDate, setSelectedDate] = useState<string>(todayStr);
+  // Today's date string YYYY-MM-DD (Live Real-Time Date)
+  const [todayStr, setTodayStr] = useState<string>(() => getLocalDateString());
+  const [selectedDate, setSelectedDate] = useState<string>(() => getLocalDateString());
+
+  // Real-time synchronization of today's date upon connection, tab focus, or midnight rollover
+  useEffect(() => {
+    const syncCurrentDate = () => {
+      const current = getLocalDateString();
+      setTodayStr((prevToday) => {
+        if (prevToday !== current) {
+          // If the user was on previous today, advance to new today
+          setSelectedDate((prevSel) => (prevSel === prevToday ? current : prevSel));
+          return current;
+        }
+        return prevToday;
+      });
+    };
+
+    // Run immediately
+    syncCurrentDate();
+
+    window.addEventListener('focus', syncCurrentDate);
+    document.addEventListener('visibilitychange', syncCurrentDate);
+    const interval = setInterval(syncCurrentDate, 15000);
+
+    return () => {
+      window.removeEventListener('focus', syncCurrentDate);
+      document.removeEventListener('visibilitychange', syncCurrentDate);
+      clearInterval(interval);
+    };
+  }, []);
 
   const showToast = (text: string, type: 'success' | 'warning' | 'info' = 'info') => {
     setToastMessage({ text, type });
@@ -106,7 +137,7 @@ export default function App() {
 
   useEffect(() => {
     if (selectedDate) {
-      const d = new Date(selectedDate.replace(/-/g, '/'));
+      const d = parseDateString(selectedDate);
       if (!isNaN(d.getTime())) {
         setCalendarViewYear(d.getFullYear());
         setCalendarViewMonth(d.getMonth());
@@ -133,30 +164,23 @@ export default function App() {
       day: 'numeric',
       weekday: 'long'
     };
-    // Replace hyphens with slashes to avoid timezone offset issue in some browsers
-    const dateObj = new Date(selectedDate.replace(/-/g, '/'));
+    const dateObj = parseDateString(selectedDate);
     return dateObj.toLocaleDateString('ko-KR', options);
   };
 
   // Date navigation handlers
   const handlePrevDate = () => {
-    const cur = new Date(selectedDate.replace(/-/g, '/'));
+    const cur = parseDateString(selectedDate);
     cur.setDate(cur.getDate() - 1);
-    const yyyy = cur.getFullYear();
-    const mm = String(cur.getMonth() + 1).padStart(2, '0');
-    const dd = String(cur.getDate()).padStart(2, '0');
-    setSelectedDate(`${yyyy}-${mm}-${dd}`);
+    setSelectedDate(getLocalDateString(cur));
     setCurrentView('mission');
   };
 
   const handleNextDate = () => {
     if (selectedDate >= todayStr) return;
-    const cur = new Date(selectedDate.replace(/-/g, '/'));
+    const cur = parseDateString(selectedDate);
     cur.setDate(cur.getDate() + 1);
-    const yyyy = cur.getFullYear();
-    const mm = String(cur.getMonth() + 1).padStart(2, '0');
-    const dd = String(cur.getDate()).padStart(2, '0');
-    const nextStr = `${yyyy}-${mm}-${dd}`;
+    const nextStr = getLocalDateString(cur);
     if (nextStr <= todayStr) {
       setSelectedDate(nextStr);
       setCurrentView('mission');
@@ -196,17 +220,19 @@ export default function App() {
       setUserInfo(JSON.parse(storedUser));
     }
 
-    // 3. Load History from LocalStorage
+    // 3. Load History from LocalStorage & Synchronize with Today's Real-Time Date
     const storedHistory = localStorage.getItem('ib_portfolio_history');
+    let parsedHistory: DailyRecord[] | null = null;
     if (storedHistory) {
-      const parsedHistory = JSON.parse(storedHistory) as DailyRecord[];
-      setHistory(parsedHistory);
-    } else {
-      // First time user: generate 1 year of rich mock history to support all period filters!
-      const mockHistory = generateMockHistory();
-      localStorage.setItem('ib_portfolio_history', JSON.stringify(mockHistory));
-      setHistory(mockHistory);
+      try {
+        parsedHistory = JSON.parse(storedHistory) as DailyRecord[];
+      } catch (e) {
+        console.error('Failed to parse history', e);
+      }
     }
+    const syncedHistory = syncHistoryWithToday(parsedHistory);
+    localStorage.setItem('ib_portfolio_history', JSON.stringify(syncedHistory));
+    setHistory(syncedHistory);
 
     // 4. Load Custom Missions & Daily Reroll Counts
     const storedCustomMissions = localStorage.getItem('ib_custom_missions_by_date');
@@ -482,7 +508,7 @@ export default function App() {
 
 
   // --- STATS COMPUTATION ---
-  const stats = calculateStats(history, statsPeriod);
+  const stats = calculateStats(history, statsPeriod, parseDateString(todayStr));
 
   // Count total historical completed missions across all records
   const totalMissionsCount = history.reduce((sum, r) => sum + r.completed.length, 0);

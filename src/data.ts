@@ -176,11 +176,24 @@ export const PROFILE_DATA: ProfileDefinition[] = [
   }
 ];
 
+// Helper to get local date string YYYY-MM-DD (immune to UTC offset issues)
+export function getLocalDateString(d: Date = new Date()): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // Helper to get past dates (format: YYYY-MM-DD)
-export function getPastDateString(daysAgo: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - daysAgo);
-  return d.toISOString().split('T')[0];
+export function getPastDateString(daysAgo: number, baseDate: Date = new Date()): string {
+  const d = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() - daysAgo);
+  return getLocalDateString(d);
+}
+
+// Safely parse YYYY-MM-DD into a local Date object
+export function parseDateString(dateStr: string): Date {
+  const [yyyy, mm, dd] = dateStr.split('-').map(Number);
+  return new Date(yyyy, (mm || 1) - 1, dd || 1);
 }
 
 // Check if a given YYYY-MM-DD date falls on a South Korean Weekend or Public Holiday
@@ -282,21 +295,19 @@ export function getMissionForDay(
   return getDefaultMissionForDay(profileKey, dateStr);
 }
 
-// Generates 1 year of realistic mock data
-export function generateMockHistory(): DailyRecord[] {
-  const records: DailyRecord[] = [];
+// Synchronize existing portfolio history with today's real-time date.
+// Ensures that continuous records exist for the past 365 days leading right up to yesterday,
+// so that the dashboard always displays accurate metrics in real-time, while preserving any user records.
+export function syncHistoryWithToday(existingHistory: DailyRecord[] | null, baseDate: Date = new Date()): DailyRecord[] {
+  const todayStr = getLocalDateString(baseDate);
   const profileKeys = PROFILE_DATA.map((p) => p.key);
 
   const mockMemos = [
-    '오늘 수학 모둠 활동 때 친구들이랑 소통하며 주도적으로 규칙을 정했다.',
-    '오늘 과학 시간에 화산 폭발 원리를 배우고 동생에게 친절하게 가르쳐 주었다.',
-    '받아쓰기 문제에서 아쉽게 틀렸지만 용기 내어 스스로 다시 공부하고 해결했다.',
-    '복도에서 뛰어가는 후배한테 부드러운 말투로 안전 보행하자고 먼저 이끌어주었다.',
-    '급식 때 편식하기 쉬웠던 오이 반찬이 나왔는데 한 입 꾹 도전해서 완식했다!',
-    '국어 토론 시간에 정민이의 전혀 다른 주장을 가로막지 않고 웃으며 끝까지 들었다.',
-    '쉬는 시간에 복도를 지나가다 바닥에 뒹굴고 있던 과자 봉투를 알아서 주웠다.',
-    '미술 협동 조각 시간에 남들이 주저하는 모둠의 정리정돈을 손발 걷어붙여 지휘했다.',
-    '숙제를 마치고 오락하고 싶었지만 건강을 수호하기 위해 눈 스트레칭을 30분 했다.',
+    '친구에게 모르는 수학 문제를 친절하게 가르쳐 주며 깊은 보람을 느꼈다.',
+    '국어 시간에 내 의견과 근거를 자신 있게 발표해서 선생님의 칭찬을 들었다.',
+    '복도에 떨어진 과자 비닐을 스스로 주워 쓰레기통에 깨끗이 분리수거했다.',
+    '쉬는 시간에 새로운 도서관 과학 잡지를 탐독하며 신기한 우주 지식을 배웠다.',
+    '미술 협동화 그리기 활동 중 양보하는 미덕을 실천하여 팀워크를 빛냈다.',
     '사회 수행 자료 조사를 도서관에 직접 방문해서 아날로그 책을 찾아 해결했다.',
     '체육 피구 경기 중 넘어져 우는 친구의 상처에 보건실 연고를 들고 가 위로했다.',
     '친구와 팽팽히 엇갈리는 입장이었으나 양보하여 갈등을 평화로이 해소했다.',
@@ -304,51 +315,69 @@ export function generateMockHistory(): DailyRecord[] {
     '하교길 쓰레기 수거 및 내 서랍 정돈을 남김없이 말끔히 완료했다.'
   ];
 
-  // Generate for past 365 days
-  for (let i = 365; i >= 1; i--) {
-    const dateStr = getPastDateString(i);
-    
-    // Pick a random number of completed profiles (between 3 and 7)
-    const shuffled = [...profileKeys].sort(() => 0.5 - Math.random());
-    const count = Math.floor(Math.random() * 5) + 3; // 3 to 7
-    const completed = shuffled.slice(0, count);
-
-    records.push({
-      date: dateStr,
-      completed,
-      submitted: true,
-      memo: mockMemos[i % mockMemos.length]
+  const map = new Map<string, DailyRecord>();
+  if (existingHistory && Array.isArray(existingHistory)) {
+    existingHistory.forEach((r) => {
+      if (r && typeof r.date === 'string') {
+        map.set(r.date, r);
+      }
     });
   }
 
-  return records;
+  // Ensure past 365 days leading up to yesterday (days 1 to 365) are present
+  for (let i = 1; i <= 365; i++) {
+    const pastDate = getPastDateString(i, baseDate);
+    if (!map.has(pastDate)) {
+      const shuffled = [...profileKeys].sort(() => 0.5 - Math.random());
+      const count = Math.floor(Math.random() * 5) + 3; // 3 to 7
+      const completed = shuffled.slice(0, count);
+
+      map.set(pastDate, {
+        date: pastDate,
+        completed,
+        submitted: true,
+        memo: mockMemos[i % mockMemos.length]
+      });
+    }
+  }
+
+  // Convert map to sorted list up to today
+  return Array.from(map.values())
+    .filter((r) => r.date <= todayStr)
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-// Compute statistics for the dashboard
-export function calculateStats(history: DailyRecord[], period: TimePeriod) {
+// Generate for past 365 days leading up to yesterday
+export function generateMockHistory(baseDate: Date = new Date()): DailyRecord[] {
+  return syncHistoryWithToday(null, baseDate);
+}
+
+// Compute statistics for the dashboard relative to today's local date
+export function calculateStats(history: DailyRecord[], period: TimePeriod, baseDate: Date = new Date()) {
   const profileCounts: Record<LearnerProfileKey, number> = {} as any;
   PROFILE_DATA.forEach((p) => {
     profileCounts[p.key] = 0;
   });
 
+  const today = getLocalDateString(baseDate);
+
   // Filter based on period
   let daysToCount = 1;
+  if (period === 'day') daysToCount = 1;
   if (period === 'week') daysToCount = 7;
   if (period === 'month') daysToCount = 14; // our standard current cycle representation
   if (period === '3months') daysToCount = 90;
   if (period === '6months') daysToCount = 180;
   if (period === '1year') daysToCount = 365;
 
-  const today = new Date().toISOString().split('T')[0];
-  const thresholdDate = new Date();
-  thresholdDate.setDate(thresholdDate.getDate() - daysToCount);
-  const thresholdStr = thresholdDate.toISOString().split('T')[0];
+  const thresholdDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() - (daysToCount - 1));
+  const thresholdStr = getLocalDateString(thresholdDate);
 
   const filteredHistory = history.filter((record) => {
     if (period === 'day') {
       return record.date === today;
     }
-    return record.date >= thresholdStr;
+    return record.date >= thresholdStr && record.date <= today;
   });
 
   filteredHistory.forEach((record) => {
