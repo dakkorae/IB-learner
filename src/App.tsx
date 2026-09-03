@@ -49,24 +49,193 @@ import RadarChart from './components/RadarChart';
 import HistoryBarChart from './components/HistoryBarChart';
 import Confetti from './components/Confetti';
 
+// --- LOCAL STORAGE DRAFT HELPERS ---
+interface DailyDraft {
+  completed: LearnerProfileKey[];
+  memo: string;
+}
+
+const getDailyDrafts = (): Record<string, DailyDraft> => {
+  try {
+    const raw = localStorage.getItem('ib_daily_drafts');
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    console.error('Failed to read ib_daily_drafts', e);
+    return {};
+  }
+};
+
+const saveDailyDraft = (date: string, completed: LearnerProfileKey[], memo: string) => {
+  try {
+    const drafts = getDailyDrafts();
+    drafts[date] = { completed, memo };
+    localStorage.setItem('ib_daily_drafts', JSON.stringify(drafts));
+  } catch (e) {
+    console.error('Failed to save daily draft', e);
+  }
+};
+
+const clearDailyDraft = (date: string) => {
+  try {
+    const drafts = getDailyDrafts();
+    if (drafts[date]) {
+      delete drafts[date];
+      localStorage.setItem('ib_daily_drafts', JSON.stringify(drafts));
+    }
+  } catch (e) {
+    console.error('Failed to clear daily draft', e);
+  }
+};
 
 export default function App() {
-  // --- STATE ---
+  // --- STATE WITH SYNCHRONOUS PERSISTENCE ---
   const dateInputRef = React.useRef<HTMLInputElement>(null);
-  const [history, setHistory] = useState<DailyRecord[]>([]);
-  const [userInfo, setUserInfo] = useState({
-    name: '김현우',
-    grade: '5',
-    classroom: '3',
-    school: 'IB World School'
+
+  // 1. History state initialized synchronously from localStorage
+  const [history, setHistory] = useState<DailyRecord[]>(() => {
+    try {
+      const stored = localStorage.getItem('ib_portfolio_history');
+      if (stored !== null) {
+        const parsed = JSON.parse(stored) as DailyRecord[];
+        if (Array.isArray(parsed)) {
+          if (parsed.length > 0) {
+            return syncHistoryWithToday(parsed);
+          }
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load initial history from localStorage', e);
+    }
+    const initial = syncHistoryWithToday(null);
+    try {
+      localStorage.setItem('ib_portfolio_history', JSON.stringify(initial));
+    } catch (e) {
+      console.error(e);
+    }
+    return initial;
   });
-  const [selectedMissions, setSelectedMissions] = useState<LearnerProfileKey[]>([]);
-  const [memoText, setMemoText] = useState('');
-  const [currentView, setCurrentView] = useState<ViewType>('dashboard');
-  const [statsPeriod, setStatsPeriod] = useState<TimePeriod>('1year');
-  const [showCelebrateModal, setShowCelebrateModal] = useState(false);
-  const [submittedToday, setSubmittedToday] = useState(false);
+
+  // 2. User info initialized synchronously from localStorage
+  const [userInfo, setUserInfo] = useState(() => {
+    try {
+      const stored = localStorage.getItem('ib_user_info');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object' && parsed.name) return parsed;
+      }
+    } catch (e) {
+      console.error('Failed to load userInfo from localStorage', e);
+    }
+    return {
+      name: '김현우',
+      grade: '5',
+      classroom: '3',
+      school: 'IB World School'
+    };
+  });
+
+  // 3. Current view & time filter period initialized synchronously
+  const [currentView, setCurrentView] = useState<ViewType>(() => {
+    try {
+      const saved = localStorage.getItem('ib_current_view') as ViewType | null;
+      if (saved && ['dashboard', 'mission', 'profiles', 'badges', 'settings'].includes(saved)) {
+        return saved;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return 'dashboard';
+  });
+
+  const [statsPeriod, setStatsPeriod] = useState<TimePeriod>(() => {
+    try {
+      const saved = localStorage.getItem('ib_stats_period') as TimePeriod | null;
+      if (saved && ['day', 'week', 'month', '3months', '6months', '1year'].includes(saved)) {
+        return saved;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return '1year';
+  });
+
+  // 4. Dates
+  const [todayStr, setTodayStr] = useState<string>(() => getLocalDateString());
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('ib_selected_date');
+      if (saved && /^\d{4}-\d{2}-\d{2}$/.test(saved)) {
+        return saved;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return getLocalDateString();
+  });
+
+  // 5. Checklist and memo initialized synchronously from submitted record OR draft
+  const [selectedMissions, setSelectedMissions] = useState<LearnerProfileKey[]>(() => {
+    try {
+      const initDate = localStorage.getItem('ib_selected_date') || getLocalDateString();
+      const storedHist = localStorage.getItem('ib_portfolio_history');
+      if (storedHist) {
+        const hist: DailyRecord[] = JSON.parse(storedHist);
+        const rec = hist.find((r) => r.date === initDate);
+        if (rec && rec.submitted) return rec.completed || [];
+      }
+      const rawDrafts = localStorage.getItem('ib_daily_drafts');
+      if (rawDrafts) {
+        const drafts = JSON.parse(rawDrafts);
+        if (drafts[initDate] && Array.isArray(drafts[initDate].completed)) {
+          return drafts[initDate].completed;
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return [];
+  });
+
+  const [memoText, setMemoText] = useState<string>(() => {
+    try {
+      const initDate = localStorage.getItem('ib_selected_date') || getLocalDateString();
+      const storedHist = localStorage.getItem('ib_portfolio_history');
+      if (storedHist) {
+        const hist: DailyRecord[] = JSON.parse(storedHist);
+        const rec = hist.find((r) => r.date === initDate);
+        if (rec && rec.submitted) return rec.memo || '';
+      }
+      const rawDrafts = localStorage.getItem('ib_daily_drafts');
+      if (rawDrafts) {
+        const drafts = JSON.parse(rawDrafts);
+        if (drafts[initDate] && typeof drafts[initDate].memo === 'string') {
+          return drafts[initDate].memo;
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return '';
+  });
+
+  const [submittedToday, setSubmittedToday] = useState<boolean>(() => {
+    try {
+      const initDate = localStorage.getItem('ib_selected_date') || getLocalDateString();
+      const storedHist = localStorage.getItem('ib_portfolio_history');
+      if (storedHist) {
+        const hist: DailyRecord[] = JSON.parse(storedHist);
+        const rec = hist.find((r) => r.date === initDate);
+        if (rec && rec.submitted) return true;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return false;
+  });
+
   const [isEditingToday, setIsEditingToday] = useState(false);
+  const [showCelebrateModal, setShowCelebrateModal] = useState(false);
   const [expandedProfileKey, setExpandedProfileKey] = useState<LearnerProfileKey | null>(null);
 
   // Calendar Modal States
@@ -88,17 +257,31 @@ export default function App() {
   const [showBadgeUnlockModal, setShowBadgeUnlockModal] = useState(false);
 
   // Custom Assigned Missions per Date (when rerolled by user)
-  const [customMissionsByDate, setCustomMissionsByDate] = useState<Record<string, Partial<Record<LearnerProfileKey, string>>>>({});
+  const [customMissionsByDate, setCustomMissionsByDate] = useState<Record<string, Partial<Record<LearnerProfileKey, string>>>>(() => {
+    try {
+      const stored = localStorage.getItem('ib_custom_missions_by_date');
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      console.error(e);
+    }
+    return {};
+  });
+
   // Daily Reroll Count per Date per Profile (Max 3 attempts per profile per day)
-  const [rerollCountsByDate, setRerollCountsByDate] = useState<Record<string, Partial<Record<LearnerProfileKey, number>>>>({});
+  const [rerollCountsByDate, setRerollCountsByDate] = useState<Record<string, Partial<Record<LearnerProfileKey, number>>>>(() => {
+    try {
+      const stored = localStorage.getItem('ib_reroll_counts_by_date');
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      console.error(e);
+    }
+    return {};
+  });
+
   // Feedback animation state for recently rerolled card
   const [recentlyRerolledKey, setRecentlyRerolledKey] = useState<LearnerProfileKey | null>(null);
   // Toast notification state
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'warning' | 'info' } | null>(null);
-
-  // Today's date string YYYY-MM-DD (Live Real-Time Date)
-  const [todayStr, setTodayStr] = useState<string>(() => getLocalDateString());
-  const [selectedDate, setSelectedDate] = useState<string>(() => getLocalDateString());
 
   // Real-time synchronization of today's date upon connection, tab focus, or midnight rollover
   useEffect(() => {
@@ -187,9 +370,41 @@ export default function App() {
     }
   };
 
-  // --- INITIALIZATION & LOCALSTORAGE ---
+  // Synchronize navigation & state selections to LocalStorage so they survive refresh
   useEffect(() => {
-    // 1. Check for URL Shared Portfolio Link (?share=...)
+    try {
+      localStorage.setItem('ib_current_view', currentView);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [currentView]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ib_selected_date', selectedDate);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [selectedDate]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ib_stats_period', statsPeriod);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [statsPeriod]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ib_user_info', JSON.stringify(userInfo));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [userInfo]);
+
+  // --- INITIALIZATION FOR URL SHARE MODE ---
+  useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const shareParam = urlParams.get('share');
 
@@ -200,75 +415,47 @@ export default function App() {
         if (parsed.u && parsed.stats) {
           setIsShareMode(true);
           setSharedUserInfo(parsed.u);
-          setUserInfo(parsed.u); // Also overwrite user info for visual consistency
+          setUserInfo(parsed.u);
 
           const dummyHistory = reconstructHistoryFromShared(parsed.stats);
           setHistory(dummyHistory);
-          // Set submittedToday to prevent any write-back actions
           setSubmittedToday(true);
-          return; // Skip reading from localStorage
         }
       } catch (e) {
         console.error('공유 데이터를 해석하는데 실패했습니다.', e);
         alert('❌ 올바르지 않거나 손상된 공유 링크입니다. 일반 모드로 접속합니다.');
       }
     }
-
-    // 2. Load User Info from LocalStorage
-    const storedUser = localStorage.getItem('ib_user_info');
-    if (storedUser) {
-      setUserInfo(JSON.parse(storedUser));
-    }
-
-    // 3. Load History from LocalStorage & Synchronize with Today's Real-Time Date
-    const storedHistory = localStorage.getItem('ib_portfolio_history');
-    let parsedHistory: DailyRecord[] | null = null;
-    if (storedHistory) {
-      try {
-        parsedHistory = JSON.parse(storedHistory) as DailyRecord[];
-      } catch (e) {
-        console.error('Failed to parse history', e);
-      }
-    }
-    const syncedHistory = syncHistoryWithToday(parsedHistory);
-    localStorage.setItem('ib_portfolio_history', JSON.stringify(syncedHistory));
-    setHistory(syncedHistory);
-
-    // 4. Load Custom Missions & Daily Reroll Counts
-    const storedCustomMissions = localStorage.getItem('ib_custom_missions_by_date');
-    if (storedCustomMissions) {
-      try {
-        setCustomMissionsByDate(JSON.parse(storedCustomMissions));
-      } catch (e) {
-        console.error('Failed to parse custom missions', e);
-      }
-    }
-    const storedRerolls = localStorage.getItem('ib_reroll_counts_by_date');
-    if (storedRerolls) {
-      try {
-        const parsed = JSON.parse(storedRerolls);
-        if (parsed && typeof parsed === 'object') {
-          setRerollCountsByDate(parsed);
-        }
-      } catch (e) {
-        console.error('Failed to parse reroll counts', e);
-      }
-    }
   }, []);
 
-  // Listen for date or history changes, to sync checklist input states with the selected date's record
+  // Listen for date or history changes, to sync checklist input states with the selected date's record or saved draft
   useEffect(() => {
     const record = history.find((r) => r.date === selectedDate);
+    const drafts = getDailyDrafts();
+    const draft = drafts[selectedDate];
+
     if (record && record.submitted) {
       setSubmittedToday(true);
-      setSelectedMissions(record.completed);
-      setMemoText(record.memo || '');
-      setIsEditingToday(false);
+      // If user was in edit mode and has draft edits, prioritize draft edits
+      if (isEditingToday && draft) {
+        setSelectedMissions(draft.completed || []);
+        setMemoText(draft.memo || '');
+      } else {
+        setSelectedMissions(record.completed || []);
+        setMemoText(record.memo || '');
+        setIsEditingToday(false);
+      }
     } else {
       setSubmittedToday(false);
-      setSelectedMissions([]);
-      setMemoText('');
       setIsEditingToday(false);
+      // If not submitted yet, restore draft if user previously inputted selections or memo
+      if (draft) {
+        setSelectedMissions(draft.completed || []);
+        setMemoText(draft.memo || '');
+      } else {
+        setSelectedMissions([]);
+        setMemoText('');
+      }
     }
   }, [selectedDate, history]);
 
@@ -324,14 +511,23 @@ export default function App() {
     showToast(`✨ [${profName}] 새로운 실천 미션으로 변경되었습니다! (이 영역 남은 기회: ${remaining}회)`, 'success');
   };
 
-  // Toggle mission selection
+  // Toggle mission selection with immediate draft persistence
   const handleToggleMission = (key: LearnerProfileKey) => {
     if (isShareMode) return; // Prevent modification in share mode
     if (submittedToday && !isEditingToday) return; // Prevent modification if submitted & not editing
 
-    setSelectedMissions((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
-    );
+    setSelectedMissions((prev) => {
+      const updated = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+      saveDailyDraft(selectedDate, updated, memoText);
+      return updated;
+    });
+  };
+
+  // Handle memo text change with immediate draft persistence
+  const handleMemoChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setMemoText(val);
+    saveDailyDraft(selectedDate, selectedMissions, val);
   };
 
   // Submit daily checklist
@@ -367,6 +563,7 @@ export default function App() {
     setHistory(finalHistory);
     setSubmittedToday(true);
     setIsEditingToday(false);
+    clearDailyDraft(selectedDate); // Clear draft since formally submitted
 
     if (newlyUnlocked.length > 0) {
       setNewlyUnlockedBadges(newlyUnlocked);
@@ -381,6 +578,7 @@ export default function App() {
   const handleEnableEdit = () => {
     if (isShareMode) return;
     setIsEditingToday(true);
+    saveDailyDraft(selectedDate, selectedMissions, memoText);
   };
 
   // Reset entire application data
@@ -389,7 +587,16 @@ export default function App() {
     if (confirm('정말로 모든 포트폴리오 데이터를 초기화하시겠습니까?\n초기화 후에는 모든 실천 기록이 지워지고 처음부터 기록을 시작하게 됩니다.')) {
       const emptyHistory: DailyRecord[] = [];
       localStorage.setItem('ib_portfolio_history', JSON.stringify(emptyHistory));
+      localStorage.removeItem('ib_daily_drafts');
+      localStorage.removeItem('ib_custom_missions_by_date');
+      localStorage.removeItem('ib_reroll_counts_by_date');
       setHistory(emptyHistory);
+      setSelectedMissions([]);
+      setMemoText('');
+      setSubmittedToday(false);
+      setIsEditingToday(false);
+      setCustomMissionsByDate({});
+      setRerollCountsByDate({});
       alert('모든 실천 데이터가 초기화되었습니다. 이제 첫 도전을 시작해 보세요!');
     }
   };
@@ -1056,6 +1263,38 @@ export default function App() {
                 </div>
               )}
 
+              {/* Editing Mode Banner */}
+              {isEditingToday && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3.5 rounded-2xl flex items-center justify-between gap-3 text-xs shadow-xs">
+                  <div className="flex items-center space-x-2.5">
+                    <span className="text-base">✏️</span>
+                    <div>
+                      <span className="font-bold text-amber-900">기록 수정 모드 진행 중</span>
+                      <p className="text-[11px] text-amber-700 mt-0.5">수정 중인 내용이 브라우저에 실시간으로 자동 임시 저장됩니다. 수정을 마치면 아래 '결과 제출하기'를 눌러주세요.</p>
+                    </div>
+                  </div>
+                  <span className="bg-amber-200/80 text-amber-900 font-bold px-2.5 py-1 rounded-lg text-[10px] shrink-0">
+                    실시간 임시 저장 중
+                  </span>
+                </div>
+              )}
+
+              {/* In-progress Draft Alert */}
+              {!submittedToday && !isEditingToday && (selectedMissions.length > 0 || memoText.trim().length > 0) && (
+                <div className="bg-blue-50 border border-blue-200/80 text-blue-900 p-3.5 rounded-2xl flex items-center justify-between gap-3 text-xs shadow-xs">
+                  <div className="flex items-center space-x-2.5">
+                    <span className="text-base">💾</span>
+                    <div>
+                      <span className="font-bold text-blue-900">입력하신 내용이 실시간 자동 저장되었습니다.</span>
+                      <p className="text-[11px] text-blue-700 mt-0.5">새로고침을 하거나 다른 탭으로 이동해도 체크한 미션({selectedMissions.length}개)과 성찰 메모가 안전하게 보존됩니다.</p>
+                    </div>
+                  </div>
+                  <span className="bg-blue-200/70 text-blue-900 font-bold px-2.5 py-1 rounded-lg text-[10px] shrink-0">
+                    새로고침 유지됨
+                  </span>
+                </div>
+              )}
+
               {/* Grid of Missions */}
               <form onSubmit={handleSubmitDaily} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1196,12 +1435,18 @@ export default function App() {
                 {/* Submit Form Elements */}
                 <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-2">
-                      💭 {selectedDate === todayStr ? '오늘의 성찰 및 배운 점 기록 (선택)' : `${selectedDate} 성찰 및 배운 점 기록 (선택)`}
-                    </label>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-xs font-bold text-slate-600">
+                        💭 {selectedDate === todayStr ? '오늘의 성찰 및 배운 점 기록 (선택)' : `${selectedDate} 성찰 및 배운 점 기록 (선택)`}
+                      </label>
+                      <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60 font-semibold flex items-center space-x-1">
+                        <span>💾</span>
+                        <span>입력 즉시 자동 저장 중 (새로고침해도 유지)</span>
+                      </span>
+                    </div>
                     <textarea
                       value={memoText}
-                      onChange={(e) => setMemoText(e.target.value)}
+                      onChange={handleMemoChange}
                       disabled={submittedToday && !isEditingToday}
                       placeholder={selectedDate === todayStr ? "오늘 하루 10대 학습자상을 실천하며 느꼈던 기쁨, 아쉬웠던 점, 또는 다짐을 짧게 적어보세요. (예: 오늘 발표할 때 조금 떨렸지만 도전하는 사람이 된 것 같아 엄청 기뻤어요!)" : `${selectedDate}에 10대 학습자상을 실천하며 느꼈던 기쁨, 아쉬웠던 점, 또는 다짐을 짧게 적어보세요.`}
                       className="w-full h-24 p-4 text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-500 text-slate-700 placeholder-slate-400 transition-all resize-none disabled:bg-slate-100 disabled:cursor-not-allowed"

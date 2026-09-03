@@ -341,9 +341,8 @@ export function syncHistoryWithToday(existingHistory: DailyRecord[] | null, base
     }
   }
 
-  // Convert map to sorted list up to today
+  // Convert map to sorted list, strictly preserving all user records without discarding future or past dates
   return Array.from(map.values())
-    .filter((r) => r.date <= todayStr)
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
