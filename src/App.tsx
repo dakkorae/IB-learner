@@ -98,16 +98,18 @@ export default function App() {
       if (stored !== null) {
         const parsed = JSON.parse(stored) as DailyRecord[];
         if (Array.isArray(parsed)) {
-          if (parsed.length > 0) {
-            return syncHistoryWithToday(parsed);
-          }
-          return parsed;
+          // Strictly return whatever is in localStorage without modifying or injecting mock records!
+          return parsed.sort((a, b) => a.date.localeCompare(b.date));
         }
+      }
+      // If user has explicitly reset data before, keep clean empty history
+      if (localStorage.getItem('ib_has_reset') === 'true') {
+        return [];
       }
     } catch (e) {
       console.error('Failed to load initial history from localStorage', e);
     }
-    const initial = syncHistoryWithToday(null);
+    const initial = generateMockHistory();
     try {
       localStorage.setItem('ib_portfolio_history', JSON.stringify(initial));
     } catch (e) {
@@ -587,6 +589,7 @@ export default function App() {
     if (confirm('정말로 모든 포트폴리오 데이터를 초기화하시겠습니까?\n초기화 후에는 모든 실천 기록이 지워지고 처음부터 기록을 시작하게 됩니다.')) {
       const emptyHistory: DailyRecord[] = [];
       localStorage.setItem('ib_portfolio_history', JSON.stringify(emptyHistory));
+      localStorage.setItem('ib_has_reset', 'true');
       localStorage.removeItem('ib_daily_drafts');
       localStorage.removeItem('ib_custom_missions_by_date');
       localStorage.removeItem('ib_reroll_counts_by_date');
@@ -598,6 +601,19 @@ export default function App() {
       setCustomMissionsByDate({});
       setRerollCountsByDate({});
       alert('모든 실천 데이터가 초기화되었습니다. 이제 첫 도전을 시작해 보세요!');
+    }
+  };
+
+  // Load 365-day sample demo data for preview
+  const handleLoadSampleData = () => {
+    if (isShareMode) return;
+    if (confirm('365일치 샘플 실천 데이터를 불러오시겠습니까?\n현재 저장된 실천 기록이 샘플 데이터로 대체됩니다.')) {
+      const sample = generateMockHistory();
+      localStorage.setItem('ib_portfolio_history', JSON.stringify(sample));
+      localStorage.removeItem('ib_has_reset');
+      localStorage.removeItem('ib_daily_drafts');
+      setHistory(sample);
+      showToast('✨ 365일치 샘플 실천 데이터가 로드되었습니다.', 'success');
     }
   };
 
@@ -1878,16 +1894,29 @@ export default function App() {
                       </label>
                     </div>
 
-                    <button
-                      onClick={handleResetData}
-                      className="w-full text-left bg-rose-50/50 hover:bg-rose-50 border border-rose-100 rounded-xl p-3.5 flex items-center justify-between transition-all group cursor-pointer"
-                    >
-                      <div>
-                        <h5 className="text-xs font-bold text-rose-700">전체 기록 데이터 초기화</h5>
-                        <p className="text-[10px] text-rose-400/80 mt-0.5">저장된 기록과 설정을 완전히 삭제하고 초기화합니다.</p>
-                      </div>
-                      <Trash2 size={16} className="text-rose-400 group-hover:scale-110 transition-transform" />
-                    </button>
+                    <div className="space-y-2 pt-1">
+                      <button
+                        onClick={handleLoadSampleData}
+                        className="w-full text-left bg-indigo-50/50 hover:bg-indigo-50 border border-indigo-100 rounded-xl p-3.5 flex items-center justify-between transition-all group cursor-pointer"
+                      >
+                        <div>
+                          <h5 className="text-xs font-bold text-indigo-700">샘플 실천 데이터 불러오기 (365일 데모)</h5>
+                          <p className="text-[10px] text-indigo-500/80 mt-0.5">다양한 통계 차트와 명예의 전당 배지 기능을 미리 체험할 수 있는 1년치 예시 데이터를 채웁니다.</p>
+                        </div>
+                        <Sparkles size={16} className="text-indigo-400 group-hover:scale-110 transition-transform" />
+                      </button>
+
+                      <button
+                        onClick={handleResetData}
+                        className="w-full text-left bg-rose-50/50 hover:bg-rose-50 border border-rose-100 rounded-xl p-3.5 flex items-center justify-between transition-all group cursor-pointer"
+                      >
+                        <div>
+                          <h5 className="text-xs font-bold text-rose-700">전체 기록 데이터 초기화</h5>
+                          <p className="text-[10px] text-rose-400/80 mt-0.5">저장된 기록과 설정을 완전히 삭제하고 0일부터 새롭게 시작합니다.</p>
+                        </div>
+                        <Trash2 size={16} className="text-rose-400 group-hover:scale-110 transition-transform" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

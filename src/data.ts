@@ -295,11 +295,8 @@ export function getMissionForDay(
   return getDefaultMissionForDay(profileKey, dateStr);
 }
 
-// Synchronize existing portfolio history with today's real-time date.
-// Ensures that continuous records exist for the past 365 days leading right up to yesterday,
-// so that the dashboard always displays accurate metrics in real-time, while preserving any user records.
-export function syncHistoryWithToday(existingHistory: DailyRecord[] | null, baseDate: Date = new Date()): DailyRecord[] {
-  const todayStr = getLocalDateString(baseDate);
+// Generate for past 365 days leading up to yesterday (ONLY for initial demo preview)
+export function generateMockHistory(baseDate: Date = new Date()): DailyRecord[] {
   const profileKeys = PROFILE_DATA.map((p) => p.key);
 
   const mockMemos = [
@@ -315,40 +312,33 @@ export function syncHistoryWithToday(existingHistory: DailyRecord[] | null, base
     '하교길 쓰레기 수거 및 내 서랍 정돈을 남김없이 말끔히 완료했다.'
   ];
 
-  const map = new Map<string, DailyRecord>();
-  if (existingHistory && Array.isArray(existingHistory)) {
-    existingHistory.forEach((r) => {
-      if (r && typeof r.date === 'string') {
-        map.set(r.date, r);
-      }
+  const records: DailyRecord[] = [];
+  for (let i = 1; i <= 365; i++) {
+    const pastDate = getPastDateString(i, baseDate);
+    const shuffled = [...profileKeys].sort(() => 0.5 - Math.random());
+    const count = Math.floor(Math.random() * 5) + 3; // 3 to 7
+    records.push({
+      date: pastDate,
+      completed: shuffled.slice(0, count),
+      submitted: true,
+      memo: mockMemos[i % mockMemos.length]
     });
   }
 
-  // Ensure past 365 days leading up to yesterday (days 1 to 365) are present
-  for (let i = 1; i <= 365; i++) {
-    const pastDate = getPastDateString(i, baseDate);
-    if (!map.has(pastDate)) {
-      const shuffled = [...profileKeys].sort(() => 0.5 - Math.random());
-      const count = Math.floor(Math.random() * 5) + 3; // 3 to 7
-      const completed = shuffled.slice(0, count);
-
-      map.set(pastDate, {
-        date: pastDate,
-        completed,
-        submitted: true,
-        memo: mockMemos[i % mockMemos.length]
-      });
-    }
-  }
-
-  // Convert map to sorted list, strictly preserving all user records without discarding future or past dates
-  return Array.from(map.values())
-    .sort((a, b) => a.date.localeCompare(b.date));
+  return records.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-// Generate for past 365 days leading up to yesterday
-export function generateMockHistory(baseDate: Date = new Date()): DailyRecord[] {
-  return syncHistoryWithToday(null, baseDate);
+// Synchronize existing portfolio history.
+// CRITICAL: NEVER synthesize or inject mock records if user history exists (even an empty array or single day record)!
+// User records MUST be strictly preserved as authentic data without any artificial filler.
+export function syncHistoryWithToday(existingHistory: DailyRecord[] | null, baseDate: Date = new Date()): DailyRecord[] {
+  if (existingHistory !== null && Array.isArray(existingHistory)) {
+    // Strictly preserve user history sorted by date
+    return [...existingHistory].sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  // Only if strictly null (completely uninitialized), generate sample mock data for first-time preview
+  return generateMockHistory(baseDate);
 }
 
 // Compute statistics for the dashboard relative to today's local date
